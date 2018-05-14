@@ -51,7 +51,7 @@ class Niki < Sinatra::Base
   def replacers(s) # special replacers to add more dynamic to the wiki
     s.gsub(/-=index=-/){ @files = pages('*').map{|e| File.basename(e).split('.')[0]}.sort; haml(:list, layout: false) }
      .gsub(/-=versions (.*?)=-/){ @files = pages($1,'*').map{|e| File.basename(e).split('.')[1,2]}; haml(:list, layout: false) }
-     .gsub(/-=partial (.*?)=-/){ h,c=markdown_parts(File.read(pages($1)[0]));protect!([:private],h); Kramdown::Document.new(c).to_html}#Kramdown::Document.new(c).to_html } #Maruku.new(c).to_html
+     .gsub(/-=partial (.*?)=-/){ h,c=markdown_parts(File.read(pages($1)[0]));protect!([:private],h); markdown(c, layout: false)}#Kramdown::Document.new(c).to_html } #Maruku.new(c).to_html
      .gsub(/-=embed (.*?)=-/){ %(<iframe src="#{URI.parse($1).to_s}" frameborder="0">&nbsp;</iframe>) }
      .gsub(/-=diff=-/){ %x{diff -Bu #{pages(@page,@version).first} #{pages(@page).first}} }
      .gsub(/-=time=-/, Time.now.to_s) # you can simply add custom stuff like this
@@ -179,7 +179,7 @@ __END__
 
 @@ show
 .content
-  = Kramdown::Document.new(@content).to_html
+  = markdown @content
 
 @@ edit
 %form{action: to("page/#{@page}"), method: 'post'}
