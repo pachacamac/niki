@@ -67,8 +67,7 @@ class Niki < Sinatra::Base
   configure{ set environment: :production, static: true}
 
   before{
-    @logger.debug(session)
-    p session
+    session.delete('init')
     @user = session['user']
     @groups = session['groups']
     content_type 'text/html', charset: 'utf-8'
