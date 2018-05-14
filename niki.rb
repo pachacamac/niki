@@ -8,8 +8,10 @@ require 'yaml/store'
 STDERR.reopen(File.new('access.log','a')).sync = true
 
 class Niki < Sinatra::Base
-  enable :inline_templates, :sessions#, :logging, :dump_errors
-
+  enable :inline_templates#, :logging, :dump_errors
+  use Rack::Session::Cookie, :key => 'rack.session',
+                             :secret => 'your_secret'
+  
   def initialize(opts={})
     super
     @logger   = opts.fetch(:logger, Logger.new(STDOUT))
@@ -55,8 +57,21 @@ class Niki < Sinatra::Base
      .gsub(/-=uptime=-/, %x{uptime}.strip) # remember to keep it safe ;)
   end
 
-  configure{ set sessions: true; set :environment, :production; set :static, true }
-  before{ @user = session[:user]; @groups = session[:groups]; content_type 'text/html', charset: 'utf-8' } # before every request
+  helpers {
+    def to(uri)
+      "/niki/#{uri}"
+    end
+  }
+
+  configure{ set environment: :production, static: true}
+
+  before{ 
+    @logger.debug(session)
+    p session  
+    @user = session['user']
+    @groups = session['groups']
+    content_type 'text/html', charset: 'utf-8'
+  } # before every request
   get '/' do redirect to('page/home') end
 
   get '/page/?:page?/?' do
@@ -93,12 +108,12 @@ class Niki < Sinatra::Base
       @page = 'Search Results'; return haml :list
     end
     db = YAML::Store.new(@userfile) # User stuff happens here! login/logout/register
-    (@user = session[:user] = session[:groups] = nil; return redirect(back)) if params[:logout] # that's the logout
+    (@user = session['user'] = session['groups'] = nil; return redirect(back)) if params[:logout] # that's the logout
     throw(:halt, [401, "Username invalid. (only a-zA-Z0-9_)\n"]) unless (clean_user = clean(params[:user])) # clean names only
     db.transaction{db['users'][clean_user] = Digest::SHA2.hexdigest(params[:pass]) unless db['users'][clean_user]} if params[:register] # register
     if db.transaction{db['users'][clean_user] == Digest::SHA2.hexdigest(params[:pass])}
-      session[:user] = clean_user
-      session[:groups] = db.transaction{ db['groups'].select{|k,v| v.include?(clean_user)}.keys }
+      session['user'] = clean_user
+      session['groups'] = db.transaction{ db['groups'].select{|k,v| v.include?(clean_user)}.keys }
       redirect(back) # successfully logged in
     else
       throw(:halt, [401, "Login invalid\n"]) # login failed

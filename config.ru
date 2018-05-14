@@ -5,12 +5,10 @@ use Rack::CommonLogger, logger
 
 require './niki.rb'
 
-run Rack::URLMap.new('/niki' => Niki)
-
-# map '/' do
-#   run NicroWiki.new(
-#     logger: logger,
-#     userfile: './users.yml',
-#   )
-# end
+map '/' do
+  run Niki.new(
+    logger: logger,
+    userfile: './users.yml'
+  )
+end
 
