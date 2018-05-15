@@ -8,7 +8,8 @@ require './niki.rb'
 map '/' do
   run Niki.new(
     logger: logger,
-    userfile: './users.yml'
+    userfile: './users.yml',
+    mountpath: '/'
   )
 end
 

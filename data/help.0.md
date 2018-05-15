@@ -1,5 +1,6 @@
 tags: help markdown cheatsheet
-author: marc
+author: admin
+protected: @admins
 
 # Special Headers
 The first lines before a double linebreak are treated as header lines.

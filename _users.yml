@@ -3,6 +3,6 @@ users:
   admin: 4699918048b0b89042df59b1e484c1f3b2e68b2b8c4138376f6ddf784f40cd5f # nikiadmin
   guest: 751a063a39e901e66bbda34a17c1058f5a88d9483290e5274dd9af97954ab882 # nikiguest
 groups:
-  testers:
-    - guest
-
+  admins:
+    - admin
+  

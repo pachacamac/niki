@@ -10,8 +10,7 @@ STDERR.reopen(File.new('access.log','a')).sync = true
 
 class Niki < Sinatra::Base
   enable :inline_templates#, :logging, :dump_errors
-  use Rack::Session::Cookie, :key => 'rack.session',
-                             :secret => 'your_secret'
+  use Rack::Session::Cookie, key: 'rack.session', secret: 'your_secret'
 
   def initialize(opts={})
     super
@@ -19,6 +18,7 @@ class Niki < Sinatra::Base
     @datadir  = opts.fetch(:datadir, "#{File.absolute_path(File.dirname(__FILE__))}/data")
     FileUtils.mkdir_p(@datadir) unless File.exist?(@datadir)
     @userfile = opts.fetch(:userfile, "#{File.absolute_path(File.dirname(__FILE__))}/users.yml")
+    @mountpath = opts.fetch(:mountpath, '/')
     #@mailopts = opts.fetch(:mailopts, nil) #required: from, pass. defaults to gmail settings
     #@salt     = opts.fetch(:salt, 'tRD0NpXX0APGaeZEca3KNXInEon7tzQ4ugaG')
   end
@@ -51,17 +51,20 @@ class Niki < Sinatra::Base
   def replacers(s) # special replacers to add more dynamic to the wiki
     s.gsub(/-=index=-/){ @files = pages('*').map{|e| File.basename(e).split('.')[0]}.sort; haml(:list, layout: false) }
      .gsub(/-=versions (.*?)=-/){ @files = pages($1,'*').map{|e| File.basename(e).split('.')[1,2]}; haml(:list, layout: false) }
-     .gsub(/-=partial (.*?)=-/){ h,c=markdown_parts(File.read(pages($1)[0]));protect!([:private],h); markdown(c, layout: false)}#Kramdown::Document.new(c).to_html } #Maruku.new(c).to_html
+     .gsub(/-=partial (.*?)=-/){ h,c=markdown_parts(File.read(pages($1)[0]));protect!([:private],h); markdown(c, layout: false)}
      .gsub(/-=embed (.*?)=-/){ %(<iframe src="#{URI.parse($1).to_s}" frameborder="0">&nbsp;</iframe>) }
-     .gsub(/-=diff=-/){ %x{diff -Bu #{pages(@page,@version).first} #{pages(@page).first}} }
+     .gsub(/-=diff=-/){ # version diffs with wdiff if installed, otherwise with diff
+        system("which wdiff > /dev/null 2>&1") ?
+          %x{wdiff -w'<span class="diff-rem">' -x'</span>' -y'<span class="diff-add">' -z'</span>' #{pages(@page,@version).first} #{pages(@page).first}} :
+          %x{diff -Bu #{pages(@page,@version).first} #{pages(@page).first}}
+      }
      .gsub(/-=time=-/, Time.now.to_s) # you can simply add custom stuff like this
      .gsub(/-=uptime=-/, %x{uptime}.strip) # remember to keep it safe ;)
+     #.gsub(/-=diff=-/){ %x{diff -Bu #{pages(@page,@version).first} #{pages(@page).first}} }
   end
 
-  helpers {
-    def to(uri)
-      "/niki/#{uri}"
-    end
+  helpers{
+    def to(uri); File.join(@mountpath, uri); end
   }
 
   configure{ set environment: :production, static: true}
@@ -72,6 +75,8 @@ class Niki < Sinatra::Base
     @groups = session['groups']
     content_type 'text/html', charset: 'utf-8'
   } # before every request
+
+  get '/favicon.ico' do; end
   get '/' do redirect to('page/home') end
 
   get '/page/?:page?/?' do
@@ -133,10 +138,12 @@ __END__
     %link{rel: 'shortcut icon', href: 'about:blank'}
     %link{rel: 'stylesheet', type: 'text/css', href: '//netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css'}
     :css
-      body { padding: 0; }
+      * { padding:0; margin:0; border-box; box-sizing: border-box; }
       .container-narrow { margin: 40px auto; max-width: 820px; }
       textarea{ width: 99%; }
       iframe{ width: 99%; height:360px; }
+      .diff-rem { background-color: #f77; }
+      .diff-add { background-color: #7f7; }
   %body
     .container-narrow
       %form.form-inline.pull-right{action: to(''), method: 'post'}
@@ -163,7 +170,7 @@ __END__
         &copy; The Open Source Community
         %form.form-inline.pull-right{action: to(''), method: 'post'}
           - if @user
-            %button.btn.btn-link{type:'submit', name: 'logout', value: '1'}&= "logout #{@user}"
+            %button.btn.btn-link{type:'submit', name: 'logout', value: '1', title: "member of groups: #{@groups.join(', ')}"}&= "logout #{@user}"
           - else
             %input.input-small{type: 'text', name: 'user', placeholder: 'username', required:''}
             %input.input-small{type: 'password', name: 'pass', placeholder: 'password', required:''}
@@ -174,11 +181,15 @@ __END__
 %ul.nav.nav-list
   - @files.each do |name, version, extra|
     %li
-      %a{href: to("page/#{name}#{"?version=#{version}" if version}")}= [name, version, extra].compact.join(' &ndash; ')
+      %a{href: to("page/#{name}#{"?version=#{version}" if version}"), title: (Time.at(version.to_i).iso8601 if version)}= [name, version, extra].compact.join(' &ndash; ')
 
 @@ show
 .content
   = markdown @content
+- if @version
+  %hr
+  %h4 Diff with latest version
+  %pre= replacers("-=diff=-")
 
 @@ edit
 %form{action: to("page/#{@page}"), method: 'post'}
@@ -189,7 +200,8 @@ __END__
   %input.btn.btn-primary{type: 'submit', value: 'save'}
 - if @page
   - if @version
+    %hr
     %h4 Diff with latest version
     %pre= replacers("-=diff=-")
-  %h4 Older versions of this page:
+  %h4 Versions of this page:
   = replacers("-=versions #{@page}=-")

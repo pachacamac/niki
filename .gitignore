@@ -1,2 +1,8 @@
 *.log
 users.yml
+.byebug_history
+
+data/*
+!data/home.0.md
+!data/help.0.md
+!data/playground.0.md
