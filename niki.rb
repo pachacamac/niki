@@ -2,7 +2,6 @@
 DATADIR = (i=ARGV.index('--datadir')) ? ARGV.slice!(i,i+1)[1] : 'data' # hack to cope with Sinatras ARGV greediness
 require 'sinatra'
 require 'haml'
-#require 'maruku'
 require 'kramdown'
 require 'yaml/store'
 #require 'byebug'
@@ -50,17 +49,28 @@ class Niki < Sinatra::Base
 
   def replacers(s) # special replacers to add more dynamic to the wiki
     s.gsub(/-=index=-/){ @files = pages('*').map{|e| File.basename(e).split('.')[0]}.sort; haml(:list, layout: false) }
-     .gsub(/-=versions (.*?)=-/){ @files = pages($1,'*').map{|e| File.basename(e).split('.')[1,2]}; haml(:list, layout: false) }
-     .gsub(/-=partial (.*?)=-/){ h,c=markdown_parts(File.read(pages($1)[0]));protect!([:private],h); markdown(c, layout: false)}
-     .gsub(/-=embed (.*?)=-/){ %(<iframe src="#{URI.parse($1).to_s}" frameborder="0">&nbsp;</iframe>) }
-     .gsub(/-=diff=-/){ # version diffs with wdiff if installed, otherwise with diff
+      .gsub(/-=versions (.*?)=-/){
+        @files = pages($1,'*').map{|e|
+          headers, content = markdown_parts(File.read(e))
+          File.basename(e).split('.')[1,2] + [headers[:author]]
+        }
+        haml(:list, layout: false)
+      }
+      .gsub(/-=partial (.*?)=-/){
+        h,c=markdown_parts(File.read(pages($1)[0]))
+        protect!([:private],h)
+        markdown(c, layout: false)
+      }
+      .gsub(/~~([^~]+?)~~/){"<del>#{$1}</del>"} # easy way to allow strikethrough
+      .gsub(/-=embed (.*?)=-/){ %(<iframe src="#{URI.parse($1).to_s}" frameborder="0">&nbsp;</iframe>) }
+      .gsub(/-=diff=-/){ # version diffs with wdiff if installed, otherwise with diff
         system("which wdiff > /dev/null 2>&1") ?
           %x{wdiff -w'<span class="diff-rem">' -x'</span>' -y'<span class="diff-add">' -z'</span>' #{pages(@page,@version).first} #{pages(@page).first}} :
           %x{diff -Bu #{pages(@page,@version).first} #{pages(@page).first}}
       }
-     .gsub(/-=time=-/, Time.now.to_s) # you can simply add custom stuff like this
-     .gsub(/-=uptime=-/, %x{uptime}.strip) # remember to keep it safe ;)
-     #.gsub(/-=diff=-/){ %x{diff -Bu #{pages(@page,@version).first} #{pages(@page).first}} }
+      .gsub(/-=time=-/, Time.now.to_s) # you can simply add custom stuff like this
+      .gsub(/-=uptime=-/, %x{uptime}.strip) # remember to keep it safe ;)
+      #.gsub(/-=diff=-/){ %x{diff -Bu #{pages(@page,@version).first} #{pages(@page).first}} }
   end
 
   helpers{
@@ -142,6 +152,7 @@ __END__
       .container-narrow { margin: 40px auto; max-width: 820px; }
       textarea{ width: 99%; }
       iframe{ width: 99%; height:360px; }
+      hr { border-top: 1px solid #e7e7e7; }
       .diff-rem { background-color: #f77; }
       .diff-add { background-color: #7f7; }
   %body
@@ -186,6 +197,7 @@ __END__
 @@ show
 .content
   = markdown @content
+  %small.muted.pull-right= "last edited by #{@headers[:author]}"
 - if @version
   %hr
   %h4 Diff with latest version
@@ -196,6 +208,7 @@ __END__
   - unless @page
     %input{type: 'text', name: 'page_name', placeholder: 'page name', autofocus: '', required:''}
   %textarea{name: 'content', rows: '20', placeholder: 'page content in markdown', required:''}= @raw_content
+  %small.muted.pull-right= "last edited by #{@headers[:author]}"
   %a.btn{href: to("#{@page ? "page/#{@page}" : 'page'}")} back
   %input.btn.btn-primary{type: 'submit', value: 'save'}
 - if @page
