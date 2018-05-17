@@ -108,7 +108,8 @@ class Niki < Sinatra::Base
     @headers, @content = markdown_parts(params[:content])
     FileUtils.copy(file, "#{@datadir}/.#{@page}.#{time}.md") if file # backup current to a version
     @headers = @headers.merge({author: @user}).map{|h| h.join(': ')}.join("\r\n") # overwrite author header
-    File.write(file || "#{@datadir}/#{@page}.#{time}.md", "#{@headers}\r\n\r\n#{@content}")
+    merged_content = "#{@headers}\r\n\r\n#{@content}".gsub(/(\r\n){3,}/,"\r\n\r\n")
+    File.write(file || "#{@datadir}/#{@page}.#{time}.md", merged_content)
     redirect to("page/#{@page}")
   end
 
