@@ -62,6 +62,7 @@ class Niki < Sinatra::Base
         markdown(c, layout: false)
       }
       .gsub(/~~([^~]+?)~~/){"<del>#{$1}</del>"} # easy way to allow strikethrough
+      .gsub(/(\s+)(https?:\/\/.*?)(\s+)/){ "#{$1}<a href=\"#{$2}\">#{$2}</a>#{$3}" }
       .gsub(/-=embed (.*?)=-/){ %(<iframe src="#{URI.parse($1).to_s}" frameborder="0">&nbsp;</iframe>) }
       .gsub(/-=diff=-/){ # version diffs with wdiff if installed, otherwise with diff
         system("which wdiff > /dev/null 2>&1") ?
