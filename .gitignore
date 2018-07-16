@@ -1,4 +1,5 @@
 *.log
+*.log.*
 users.yml
 .byebug_history
 
