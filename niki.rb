@@ -4,7 +4,9 @@ require 'sinatra'
 require 'haml'
 require 'kramdown'
 require 'yaml/store'
+require 'rufus-scheduler'
 #require 'byebug'
+
 STDERR.reopen(File.new('access.log','a')).sync = true
 
 class Niki < Sinatra::Base
@@ -20,14 +22,59 @@ class Niki < Sinatra::Base
     @mountpath = opts.fetch(:mountpath, '/')
     #@mailopts = opts.fetch(:mailopts, nil) #required: from, pass. defaults to gmail settings
     #@salt     = opts.fetch(:salt, 'tRD0NpXX0APGaeZEca3KNXInEon7tzQ4ugaG')
+    init_schedules
+  end
+
+  def users
+    db = YAML::Store.new(@userfile)
+    users, groups, contacts = db.transaction{[db['users'].keys, db['groups'], db['contacts']]}
+    users.map{|u| [u, {
+      groups: groups.select{|k,v| v.include?(u)}.keys.sort,
+      contacts: contacts[u] || []
+    }]}.to_h
+  end
+
+  def init_schedules
+    # scheduler.in '10d' do
+    # scheduler.at '2030/12/12 23:30:00' do
+    # scheduler.every '3h' do
+    # scheduler.cron '5 0 * * *' do
+    @scheduler ||= Rufus::Scheduler.new
+    # sending updates to people about changed pages
+    @scheduler.every('2h') do
+      File.open('schedule.test', 'a') do |f|
+        updated_pages = pages.map{|page|
+          parts = markdown_parts(File.read(page))
+          [page, {headers: parts.first, content: parts.last}]
+        }.to_h.select{|page, meta| Time.parse(meta[:updated_at]||'01.01.1970') > Time.now - 3600*2 }
+        contactable_users = users.select{|u,meta| meta[:contacts].any?}
+        users_page_updates = contactable_users.map do |user, user_meta|
+          pages = updated_pages.select{|page, page_meta|
+            notify = (page_meta[:notify]||'').split.map(&:downcase)
+            page_meta[:author] != user && notify.include?(user) || (notify & user_meta[:groups]).any?
+          }
+          pages.any? ? [user, pages] : nil
+        end.compact
+        users_page_updates.each do |user, pages|
+          File.open('changed_pages.test', 'a') do |f|
+            f.puts "#{user} => #{pages.keys}"
+          end
+        end
+      end
+    end
   end
 
   def clean(name, fallback=nil, re=nil) # clean a name with a regexp
     name.tr(' ','_').match(re || /\w+/)[0] rescue fallback
   end
 
+  def email(e)
+    e = e.strip.downcase
+    e =~ /\A[^@\s]+@[^@\s]+\z/ ? e : nil
+  end
+
   def pages(name=nil, version=nil) # find matching files/versions
-    Dir.glob("#{@datadir}/#{'.'if version}#{clean(name,'*')}.#{clean(version,'*')}.*")
+    Dir.glob(File.join(@datadir, "#{'.'if version}#{clean(name,'*')}.#{clean(version,'*')}.*")).sort_by{|f| -File.mtime(f)}
   end
 
   def markdown_parts(s) # read markdown headers and body and convert headers to a hash
@@ -56,6 +103,7 @@ class Niki < Sinatra::Base
         }
         haml(:list, layout: false)
       }
+      .gsub(/-=users=-/){ users.to_json }
       .gsub(/-=partial (.*?)=-/){
         h,c=markdown_parts(File.read(pages($1)[0]))
         protect!([:private],h)
@@ -63,6 +111,7 @@ class Niki < Sinatra::Base
       }
       .gsub(/~~([^~]+?)~~/){"<del>#{$1}</del>"} # easy way to allow strikethrough
       .gsub(/(\s+)(https?:\/\/.*?)(\s+)/){ "#{$1}<a href=\"#{$2}\">#{$2}</a>#{$3}" }
+      .gsub(/-=gist ([\w\d]+\/[\w\d]+)=-/){ %(<script src="https://gist.github.com/#{$1}.js"></script>) }
       .gsub(/-=embed (.*?)=-/){ %(<iframe src="#{URI.parse($1).to_s}" frameborder="0">&nbsp;</iframe>) }
       .gsub(/-=diff=-/){ # version diffs with wdiff if installed, otherwise with diff
         system("which wdiff > /dev/null 2>&1") ?
@@ -108,7 +157,7 @@ class Niki < Sinatra::Base
     protect!([:protected, :private], markdown_parts(File.read(file))[0]) if file # check rights
     @headers, @content = markdown_parts(params[:content])
     FileUtils.copy(file, "#{@datadir}/.#{@page}.#{time}.md") if file # backup current to a version
-    @headers = @headers.merge({author: @user}).map{|h| h.join(': ')}.join("\r\n") # overwrite author header
+    @headers = @headers.merge({author: @user, updated_at: Time.now.iso8601}).map{|h| h.join(': ')}.join("\r\n") # overwrite author and updated_at header
     merged_content = "#{@headers}\r\n\r\n#{@content}".gsub(/(\r\n){3,}/,"\r\n\r\n")
     File.write(file || "#{@datadir}/#{@page}.#{time}.md", merged_content)
     redirect to("page/#{@page}")
@@ -127,6 +176,7 @@ class Niki < Sinatra::Base
     db = YAML::Store.new(@userfile) # User stuff happens here! login/logout/register
     (@user = session['user'] = session['groups'] = nil; return redirect(back)) if params[:logout] # that's the logout
     throw(:halt, [401, "Username invalid. (only a-zA-Z0-9_)\n"]) unless (clean_user = clean(params[:user])) # clean names only
+    #throw(:halt, [401, "Email invalid.\n"]) unless (clean_user = email(params[:user])) # emails only
     db.transaction{db['users'][clean_user] = Digest::SHA2.hexdigest(params[:pass]) unless db['users'][clean_user]} if params[:register] # register
     if db.transaction{db['users'][clean_user] == Digest::SHA2.hexdigest(params[:pass])}
       session['user'] = clean_user
@@ -137,6 +187,8 @@ class Niki < Sinatra::Base
     end
   end
 end
+
+
 
 __END__
 @@ layout
